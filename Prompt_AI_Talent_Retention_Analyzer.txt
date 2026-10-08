@@ -1,0 +1,35 @@
+Quiero que desarrolles una aplicación web en Python + Streamlit llamada “AI Talent Retention Analyzer” para un caso académico de People Analytics/RR.HH. La empresa del caso es ficticia: EV-Tech Mobility & Energy, una compañía de vehículos eléctricos, baterías, almacenamiento de energía, software/IA y manufactura avanzada con operaciones principalmente en California. El objetivo es integrar dos preguntas de negocio: (1) ¿por qué se están yendo los empleados? y (2) ¿en qué segmentos organizativos existe mayor riesgo agregado de rotación voluntaria y qué factores parecen estar asociados?
+
+La aplicación debe trabajar con un archivo Excel que contiene estas hojas: “Historico_Empleados”, “Empleados_Actuales”, “Entrevistas_Salida”, “Diccionario” y “Fuentes”. Debe leer los nombres reales de columnas del archivo y validar que existan antes de ejecutar el análisis.
+
+OBJETIVO FUNCIONAL
+La app debe combinar People Analytics, Machine Learning y análisis de texto. No debe tomar decisiones de empleo sobre personas ni mostrar rankings individuales. Employee_ID debe usarse únicamente como llave técnica y nunca mostrarse en la interfaz. Los resultados de riesgo deben ser agregados por grupos y no mostrar segmentos con menos de 10 personas.
+
+MÓDULO 1 – RESUMEN EJECUTIVO
+Mostrar KPIs: número de registros históricos, empleados actuales, número de entrevistas de salida, tasa histórica de rotación voluntaria, satisfacción promedio con compensación, carrera, manager, work-life balance y conexión con la misión. Mostrar un breve resumen de los principales hallazgos, dejando claro que el dataset es sintético y los resultados son demostrativos.
+
+MÓDULO 2 – ¿POR QUÉ SE VAN?
+Usar la hoja “Entrevistas_Salida”. Mostrar distribución de Primary_Exit_Reason, Secondary_Exit_Reason, Would_Recommend y Positive_Aspect. Analizar los campos de texto Exit_Comment y What_Would_Have_Made_You_Stay. Sin API, generar análisis descriptivo mediante frecuencias, TF-IDF o palabras/temas relevantes y utilizar las categorías estructuradas como respaldo. Si existe una API generativa configurada en Streamlit Secrets, añadir un botón “Generar resumen ejecutivo con IA” que envíe únicamente texto no identificable y devuelva: 5 temas recurrentes, factores de salida, factores que favorecen permanencia, tensiones/paradojas y 3-5 posibles líneas de acción de RR.HH. No incluir identificadores.
+
+MÓDULO 3 – ¿DÓNDE EXISTE MAYOR RIESGO?
+Usar “Historico_Empleados” para entrenar un modelo que prediga Voluntary_Attrition_12m. Excluir Employee_ID y cualquier variable que constituya fuga de información. Separar train/test de forma estratificada. Crear un Pipeline de scikit-learn con imputación, OneHotEncoder para categóricas y RandomForestClassifier (o un modelo similar interpretable y robusto). Mostrar métricas como ROC-AUC, precision, recall y matriz de confusión, explicando que son métricas sobre datos sintéticos y no validan un modelo para uso real.
+
+Después, aplicar el modelo a “Empleados_Actuales”, pero NO mostrar probabilidades ni rankings individuales. Agregar las probabilidades por Department, Level, Location, Shift o Work_Mode y mostrar solo grupos con n >= 10. Presentar riesgo agregado medio por grupo, tamaño del grupo y comparación con la media de la empresa. Utilizar semáforo Bajo/Medio/Alto definido por cuantiles o umbrales transparentes.
+
+MÓDULO 4 – FACTORES ASOCIADOS
+Calcular permutation importance sobre el conjunto de prueba para mostrar qué variables aportan más señal predictiva. Presentar un gráfico de las 10 variables más importantes. Además, mostrar comparaciones descriptivas entre quienes salieron y quienes permanecieron para variables como Work_Life_Balance, Manager_Sat, Career_Growth_Sat, Total_Comp_Sat, Avg_Weekly_Hours, Overtime_Hours_Month, Months_Since_Promotion, Recruiter_Contacts_6m, Reorg_12m y Mission_Connection. Evitar afirmar causalidad; usar expresiones como “asociado”, “relacionado” o “presenta mayor incidencia histórica”.
+
+MÓDULO 5 – RECOMENDACIONES
+Crear recomendaciones a nivel organizativo, no individual. La lógica debe cruzar la evidencia cuantitativa del modelo con los temas de entrevistas de salida. Ejemplo: si Work_Life_Balance aparece como predictor importante y “Carga de trabajo / balance” es un motivo frecuente de salida, señalar la convergencia y sugerir revisar dotación, turnos, horas extra y planificación de capacidad. Si Manager_Sat y comentarios de liderazgo convergen, sugerir formación de managers, feedback y revisión de prácticas de liderazgo. Si Career_Growth_Sat y Months_Since_Promotion son relevantes, sugerir rutas de carrera y movilidad interna. Las recomendaciones deben mostrarse como hipótesis de intervención que RH debería validar, no como decisiones automáticas.
+
+INTERFAZ STREAMLIT
+Crear una interfaz profesional, limpia y fácil de explicar en clase. Usar pestañas: “Resumen”, “Por qué se van”, “Riesgo agregado”, “Factores”, “Recomendaciones” y “Metodología”. Barra lateral con carga del Excel y filtros opcionales por Department, Level, Location y Work_Mode. Usar Plotly para gráficos interactivos. Incluir mensajes de error claros si faltan hojas o columnas. Mantener la app en español.
+
+ÉTICA Y PRIVACIDAD
+Incluir un recuadro visible de uso responsable: el dataset es sintético; el modelo es demostrativo; no debe utilizarse para decisiones individuales de contratación, despido, promoción o compensación; no usar atributos protegidos; resultados de riesgo solo agregados; grupos menores de 10 personas se ocultan; no afirmar causalidad.
+
+ARCHIVOS A GENERAR
+Genera todo lo necesario para desplegar en Streamlit Community Cloud: app.py, requirements.txt y .gitignore. Añade comentarios claros en el código. El requirements.txt debe incluir solo las librerías realmente utilizadas. El .gitignore debe excluir .xlsx, .csv, archivos de secrets, .env y credenciales. La app debe funcionar sin API externa; la parte generativa debe ser opcional y activarse solo si encuentra las credenciales necesarias en st.secrets. Nunca escribas una API key directamente en el código.
+
+ENTREGA
+Primero explícame brevemente la arquitectura propuesta y después genera los archivos completos. No simplifiques la lógica a un dashboard estático: debe existir entrenamiento de un modelo de ML, análisis de entrevistas de salida y cruce de ambos tipos de evidencia para apoyar decisiones de retención a nivel organizativo.
