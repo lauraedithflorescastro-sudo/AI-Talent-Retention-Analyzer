@@ -8,14 +8,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from sklearn.compose import ColumnTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 st.set_page_config(
     page_title="AI Talent Retention Analyzer",
@@ -127,70 +123,121 @@ def validate_workbook(book):
             )
 
 
-def train_attrition_model(hist):
-    feature_cols = [
-        c for c in hist.columns
-        if c not in {ID_COL, TARGET}
-    ]
-    X = hist[feature_cols].copy()
-    y = hist[TARGET].astype(int)
-
+def _fit_design_matrix(df, feature_cols):
+    """Preprocesamiento explícito y estable para evitar dependencias de pipelines complejos."""
+    X = df[feature_cols].copy()
     categorical = [
         c for c in feature_cols
         if X[c].dtype == "object" or str(X[c].dtype).startswith("category")
     ]
     numeric = [c for c in feature_cols if c not in categorical]
 
-    preprocessor = ColumnTransformer(
-        transformers=[
-            (
-                "num",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="median")),
-                    ("scaler", StandardScaler()),
-                ]),
-                numeric,
-            ),
-            (
-                "cat",
-                Pipeline([
-                    ("imputer", SimpleImputer(strategy="most_frequent")),
-                    ("onehot", OneHotEncoder(handle_unknown="ignore")),
-                ]),
-                categorical,
-            ),
-        ]
-    )
+    medians = {}
+    means = {}
+    stds = {}
+    modes = {}
 
-    model = Pipeline([
-        ("preprocessor", preprocessor),
-        ("model", LogisticRegression(max_iter=3000, random_state=42)),
-    ])
+    for col in numeric:
+        vals = pd.to_numeric(X[col], errors="coerce")
+        median = float(vals.median()) if vals.notna().any() else 0.0
+        vals = vals.fillna(median).astype(float)
+        mean = float(vals.mean())
+        std = float(vals.std())
+        if not np.isfinite(std) or std == 0:
+            std = 1.0
+        X[col] = (vals - mean) / std
+        medians[col] = median
+        means[col] = mean
+        stds[col] = std
+
+    for col in categorical:
+        values = X[col].astype("string")
+        mode = values.dropna().mode()
+        fill = str(mode.iloc[0]) if len(mode) else "Sin dato"
+        X[col] = values.fillna(fill).astype(str)
+        modes[col] = fill
+
+    X_enc = pd.get_dummies(X, columns=categorical, dummy_na=False, dtype=float)
+    X_enc = X_enc.astype(float)
+
+    prep = {
+        "feature_cols": feature_cols,
+        "categorical": categorical,
+        "numeric": numeric,
+        "medians": medians,
+        "means": means,
+        "stds": stds,
+        "modes": modes,
+        "encoded_columns": X_enc.columns.tolist(),
+    }
+    return X_enc, prep
+
+
+def _transform_design_matrix(df, prep):
+    X = df.copy()
+    for col in prep["feature_cols"]:
+        if col not in X.columns:
+            X[col] = np.nan
+    X = X[prep["feature_cols"]].copy()
+
+    for col in prep["numeric"]:
+        vals = pd.to_numeric(X[col], errors="coerce")
+        vals = vals.fillna(prep["medians"][col]).astype(float)
+        X[col] = (vals - prep["means"][col]) / prep["stds"][col]
+
+    for col in prep["categorical"]:
+        X[col] = (
+            X[col]
+            .astype("string")
+            .fillna(prep["modes"][col])
+            .astype(str)
+        )
+
+    X_enc = pd.get_dummies(
+        X,
+        columns=prep["categorical"],
+        dummy_na=False,
+        dtype=float,
+    )
+    X_enc = X_enc.reindex(columns=prep["encoded_columns"], fill_value=0.0)
+    return X_enc.astype(float)
+
+
+def train_attrition_model(hist):
+    feature_cols = [c for c in hist.columns if c not in {ID_COL, TARGET}]
+    y = hist[TARGET].astype(int)
 
     auc = np.nan
     try:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.25, stratify=y, random_state=42
+        train_idx, test_idx = train_test_split(
+            np.arange(len(hist)),
+            test_size=0.25,
+            stratify=y,
+            random_state=42,
         )
-        model.fit(X_train, y_train)
-        test_score = model.predict_proba(X_test)[:, 1]
-        auc = roc_auc_score(y_test, test_score)
+        X_train, prep_test = _fit_design_matrix(hist.iloc[train_idx], feature_cols)
+        X_test = _transform_design_matrix(hist.iloc[test_idx], prep_test)
+        y_train = y.iloc[train_idx]
+        y_test = y.iloc[test_idx]
+        temp_model = LogisticRegression(max_iter=3000, random_state=42)
+        temp_model.fit(X_train, y_train)
+        auc = roc_auc_score(y_test, temp_model.predict_proba(X_test)[:, 1])
     except Exception:
-        pass
+        # La app puede continuar aun si no es posible calcular el hold-out AUC.
+        auc = np.nan
 
-    # Reentrena con todos los datos para aplicar el modelo a la plantilla actual.
-    model.fit(X, y)
-    return model, feature_cols, numeric, categorical, auc
+    X_all, prep = _fit_design_matrix(hist, feature_cols)
+    lr = LogisticRegression(max_iter=3000, random_state=42)
+    lr.fit(X_all, y)
+    bundle = {"model": lr, "prep": prep}
+    return bundle, feature_cols, prep["numeric"], prep["categorical"], auc
 
 
-def score_current(model, current, feature_cols):
+def score_current(model_bundle, current, feature_cols):
     scored = current.copy()
-    for col in feature_cols:
-        if col not in scored.columns:
-            scored[col] = np.nan
-    scored["Risk_Score"] = model.predict_proba(scored[feature_cols])[:, 1]
+    X_current = _transform_design_matrix(scored, model_bundle["prep"])
+    scored["Risk_Score"] = model_bundle["model"].predict_proba(X_current)[:, 1]
 
-    # Etiquetas relativas, no diagnósticos individuales.
     low_cut = scored["Risk_Score"].quantile(0.40)
     high_cut = scored["Risk_Score"].quantile(0.80)
     scored["Risk_Band"] = np.select(
@@ -202,7 +249,6 @@ def score_current(model, current, feature_cols):
         default="Prioridad baja",
     )
     return scored, low_cut, high_cut
-
 
 def numeric_attrition_drivers(hist):
     rows = []
@@ -229,15 +275,9 @@ def numeric_attrition_drivers(hist):
     )
 
 
-def model_coefficients(model, numeric, categorical):
-    prep = model.named_steps["preprocessor"]
-    lr = model.named_steps["model"]
-    names = []
-    names.extend(numeric)
-    if categorical:
-        ohe = prep.named_transformers_["cat"].named_steps["onehot"]
-        names.extend(ohe.get_feature_names_out(categorical).tolist())
-
+def model_coefficients(model_bundle, numeric, categorical):
+    lr = model_bundle["model"]
+    names = model_bundle["prep"]["encoded_columns"]
     coefs = lr.coef_[0]
     imp = pd.DataFrame({
         "Feature": names,
@@ -250,7 +290,6 @@ def model_coefficients(model, numeric, categorical):
         "Asociado con menor riesgo",
     )
     return imp.sort_values("Magnitude", ascending=False).reset_index(drop=True)
-
 
 def top_tfidf_terms(text_series, top_n=15):
     texts = (
@@ -307,9 +346,10 @@ def make_typical_profile(current, feature_cols, department=None):
     return row
 
 
-def scenario_score(model, feature_cols, profile):
+def scenario_score(model_bundle, feature_cols, profile):
     frame = pd.DataFrame([{c: profile.get(c, np.nan) for c in feature_cols}])
-    return float(model.predict_proba(frame)[0, 1])
+    X_frame = _transform_design_matrix(frame, model_bundle["prep"])
+    return float(model_bundle["model"].predict_proba(X_frame)[0, 1])
 
 
 def fmt_pct(x):
